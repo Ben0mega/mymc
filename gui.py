@@ -93,7 +93,7 @@ def get_dialog_units(win):
 
 def single_title(title):
 	"""Convert the two parts of an icon.sys title into one string."""
-	
+
 	title = title[0] + " " + title[1]
 	return u" ".join(title.split())
 
@@ -107,7 +107,7 @@ def _get_icon_resource_as_images(name):
 		f.seek(0)
 		images.append(wx.ImageFromStream(f, wx.BITMAP_TYPE_ICO, i))
 	return images
-	
+
 def get_icon_resource(name):
 	"""Convert a Window ICO contained in a string to an IconBundle."""
 
@@ -122,7 +122,7 @@ def get_icon_resource_bmp(name, size):
 	"""Get an icon resource as a Bitmap.
 
 	Tries to find the closest matching size if no exact match exists."""
-	
+
 	best = None
 	best_size = (0, 0)
 	for img in _get_icon_resource_as_images(name):
@@ -143,8 +143,12 @@ def get_icon_resource_bmp(name, size):
 
 class dirlist_control(wx.ListCtrl):
 	"""Lists all the save files in a memory card image."""
-	
+
 	def __init__(self, parent, evt_focus, evt_select, config):
+		self.cmp_name_direction = -1
+		self.cmp_modified_direction = -1
+		self.cmp_title_direction = -1
+		self.cmp_size_direction =-1
 		self.config = config
 		self.selected = set()
 		self.evt_select = evt_select
@@ -171,7 +175,7 @@ class dirlist_control(wx.ListCtrl):
 			size = mc.dir_size(dirname)
 			title = ps2save.icon_sys_title(a, encoding = enc)
 			table.append((ent, s, size, title))
-		
+
 	def update_dirtable(self, mc):
 		self.dirtable = []
 		if mc == None:
@@ -181,32 +185,36 @@ class dirlist_control(wx.ListCtrl):
 			self._update_dirtable(mc, dir)
 		finally:
 			dir.close()
-			
+
 	def cmp_dir_name(self, i1, i2):
-		return self.dirtable[i1][0][8] > self.dirtable[i2][0][8]
+		return self.cmp_name_direction * cmp(self.dirtable[i1][0][8], self.dirtable[i2][0][8])
 
 	def cmp_dir_title(self, i1, i2):
-		return self.dirtable[i1][3] > self.dirtable[i2][3]
+		return self.cmp_title_direction * cmp(self.dirtable[i1][3], self.dirtable[i2][3])
 
 	def cmp_dir_size(self, i1, i2):
-		return self.dirtable[i1][2] > self.dirtable[i2][2]
+		return self.cmp_size_direction * cmp(self.dirtable[i1][2], self.dirtable[i2][2])
 
 	def cmp_dir_modified(self, i1, i2):
 		m1 = list(self.dirtable[i1][0][6])
 		m2 = list(self.dirtable[i2][0][6])
 		m1.reverse()
 		m2.reverse()
-		return m1 > m2
-	
+		return self.cmp_modified_direction * cmp(m1, m2)
+
 	def evt_col_click(self, event):
 		col = event.m_col
 		if col == 0:
+			self.cmp_name_direction*=-1
 			cmp = self.cmp_dir_name
 		elif col == 1:
+			self.cmp_size_direction*=-1
 			cmp = self.cmp_dir_size
 		elif col == 2:
+			self.cmp_modified_direction*=-1
 			cmp = self.cmp_dir_modified
 		elif col == 3:
+			self.cmp_title_direction*=-1
 			cmp = self.cmp_dir_title
 		self.SortItems(cmp)
 		return
@@ -214,15 +222,15 @@ class dirlist_control(wx.ListCtrl):
 	def evt_item_selected(self, event):
 		self.selected.add(event.GetData())
 		self.evt_select(event)
-		
+
 	def evt_item_deselected(self, event):
 		self.selected.discard(event.GetData())
 		self.evt_select(event)
-		
+
 	def update(self, mc):
 		"""Update the ListCtrl according to the contents of the
 		   memory card image."""
-		
+
 		self.ClearAll()
 		self.selected = set()
 		self.InsertColumn(0, "Directory")
@@ -233,14 +241,14 @@ class dirlist_control(wx.ListCtrl):
 		li.SetAlign(wx.LIST_FORMAT_RIGHT)
 		li.SetText("Size")
 		self.SetColumn(1, li)
-		
+
 		self.update_dirtable(mc)
-		
+
 		empty = len(self.dirtable) == 0
 		self.Enable(not empty)
 		if empty:
 			return
-		
+
 		for (i, a) in enumerate(self.dirtable):
 			(ent, icon_sys, size, title) = a
 			li = self.InsertStringItem(i, ent[8])
@@ -261,13 +269,13 @@ class dirlist_control(wx.ListCtrl):
 
 class icon_window(wx.Window):
 	"""Displays a save file's 3D icon.  Windows only.
-	
+
 	The rendering of the 3D icon is handled by C++ code in the
 	mymcsup DLL which subclasses this window.  This class mainly
 	handles configuration options that affect how the 3D icon is
 	displayed.
 	"""
-	
+
 	ID_CMD_ANIMATE        = 201
 	ID_CMD_LIGHT_NONE     = 202
 	ID_CMD_LIGHT_ICON     = 203
@@ -320,7 +328,7 @@ class icon_window(wx.Window):
 			    self.evt_menu_light)
 		wx.EVT_MENU(win, icon_window.ID_CMD_LIGHT_ALT2,
 			    self.evt_menu_light)
-		
+
 		wx.EVT_MENU(win, icon_window.ID_CMD_CAMERA_FLAT,
 			    self.evt_menu_camera)
 		wx.EVT_MENU(win, icon_window.ID_CMD_CAMERA_DEFAULT,
@@ -329,7 +337,7 @@ class icon_window(wx.Window):
 			    self.evt_menu_camera)
 		wx.EVT_MENU(win, icon_window.ID_CMD_CAMERA_HIGH,
 			    self.evt_menu_camera)
-		
+
 	def __init__(self, parent, focus):
 		self.failed = False
 		wx.Window.__init__(self, parent)
@@ -342,7 +350,7 @@ class icon_window(wx.Window):
 			print "init_icon_renderer failed"
 			self.failed = True
 			return
-		
+
 		self.config = config = mymcsup.icon_config()
 		config.animate = True
 
@@ -350,7 +358,7 @@ class icon_window(wx.Window):
 		self.append_menu_options(self, self.menu)
 		self.set_lighting(self.ID_CMD_LIGHT_ALT2)
 		self.set_camera(self.ID_CMD_CAMERA_DEFAULT)
-		
+
 		wx.EVT_CONTEXT_MENU(self, self.evt_context_menu)
 
 	def __del__(self):
@@ -363,13 +371,13 @@ class icon_window(wx.Window):
 		menu.Check(icon_window.ID_CMD_ANIMATE, self.config.animate)
 		menu.Check(self.lighting_id, True)
 		menu.Check(self.camera_id, True)
-		
+
 	def load_icon(self, icon_sys, icon):
 		"""Pass the raw icon data to the support DLL for display."""
 
 		if self.failed:
 			return
-		
+
 		if icon_sys == None or icon == None:
 			r = mymcsup.load_icon(None, 0, None, 0)
 		else:
@@ -396,14 +404,14 @@ class icon_window(wx.Window):
 	def set_lighting(self, id):
 		self.lighting_id = id
 		self._set_lighting(**self.light_options[id])
-		
+
 	def set_animate(self, animate):
 		if self.failed:
 			return
 		self.config.animate = animate
 		if mymcsup.set_config(self.config) == -1:
 			self.failed = True
-		
+
 	def _set_camera(self, camera):
 		if self.failed:
 			return
@@ -414,7 +422,7 @@ class icon_window(wx.Window):
 	def set_camera(self, id):
 		self.camera_id = id
 		self._set_camera(self.camera_options[id])
-		
+
 	def evt_context_menu(self, event):
 		self.update_menu(self.menu)
 		self.PopupMenu(self.menu)
@@ -434,7 +442,7 @@ class gui_config(wx.Config):
 	memcard_dir = "Memory Card Directory"
 	savefile_dir = "Save File Directory"
 	ascii = "ASCII Descriptions"
-	
+
 	def __init__(self):
 		wx.Config.__init__(self, "mymc", "Ross Ridge",
 				   style = wx.CONFIG_USE_LOCAL_FILE)
@@ -464,30 +472,35 @@ def add_tool(toolbar, id, label, ico):
 
 class gui_frame(wx.Frame):
 	"""The main top level window."""
-	
+
 	ID_CMD_EXIT = wx.ID_EXIT
 	ID_CMD_OPEN = wx.ID_OPEN
 	ID_CMD_EXPORT = 103
 	ID_CMD_IMPORT = 104
 	ID_CMD_DELETE = wx.ID_DELETE
 	ID_CMD_ASCII = 106
-	
+
 	def message_box(self, message, caption = "mymc", style = wx.OK,
 			x = -1, y = -1):
 		return wx.MessageBox(message, caption, style, self, x, y)
 
 	def error_box(self, msg):
 		return self.message_box(msg, "Error", wx.OK | wx.ICON_ERROR)
-		
+
 	def mc_error(self, value, filename = None):
 		"""Display a message box for EnvironmentError exeception."""
 
 		if filename == None:
+			filename = getattr(value, "filename")
+		if filename == None:
 			filename = self.mcname
-			if filename == None:
-				filename = "???"
-		filename = getattr(value, "filename", filename) 
-		strerror = getattr(value, "strerror", "unknown error")
+		if filename == None:
+			filename = "???"
+
+		strerror = getattr(value, "strerror", None)
+		if strerror == None:
+			strerror = "unknown error"
+
 		return self.error_box(filename + ": " + strerror)
 
 	def __init__(self, parent, title, mcname = None):
@@ -507,14 +520,14 @@ class gui_frame(wx.Frame):
 		self.title = title
 
 		self.SetIcons(get_icon_resource("mc4.ico"))
-				
+
 		wx.EVT_MENU(self, self.ID_CMD_EXIT, self.evt_cmd_exit)
 		wx.EVT_MENU(self, self.ID_CMD_OPEN, self.evt_cmd_open)
 		wx.EVT_MENU(self, self.ID_CMD_EXPORT, self.evt_cmd_export)
 		wx.EVT_MENU(self, self.ID_CMD_IMPORT, self.evt_cmd_import)
 		wx.EVT_MENU(self, self.ID_CMD_DELETE, self.evt_cmd_delete)
 		wx.EVT_MENU(self, self.ID_CMD_ASCII, self.evt_cmd_ascii)
-		
+
 		filemenu = wx.Menu()
 		filemenu.Append(self.ID_CMD_OPEN, "&Open...",
 				"Opens an existing PS2 memory card image.")
@@ -551,7 +564,7 @@ class gui_frame(wx.Frame):
 		self.statusbar = self.CreateStatusBar(2,
 						      style = wx.ST_SIZEGRIP)
 		self.statusbar.SetStatusWidths([-2, -1])
-		
+
 		panel = wx.Panel(self, wx.ID_ANY, (0, 0))
 
 		self.dirlist = dirlist_control(panel,
@@ -574,7 +587,7 @@ class gui_frame(wx.Frame):
 				icon_win.Destroy()
 				icon_win = None
 		self.icon_win = icon_win
-		
+
 		if icon_win == None:
 			self.info1 = None
 			self.info2 = None
@@ -583,7 +596,7 @@ class gui_frame(wx.Frame):
 			icon_win.append_menu_options(self, icon_menu)
 			optionmenu.AppendSubMenu(icon_menu, "Icon Window")
 			title_style =  wx.ALIGN_RIGHT | wx.ST_NO_AUTORESIZE
-			
+
 			self.info1 = wx.StaticText(panel, -1, "",
 						   style = title_style)
 			self.info2 = wx.StaticText(panel, -1, "",
@@ -605,7 +618,7 @@ class gui_frame(wx.Frame):
 		menubar.Append(optionmenu, "&Options")
 		self.SetMenuBar(menubar)
 
-		
+
 		panel.SetSizer(sizer)
 		panel.SetAutoLayout(True)
 		sizer.Fit(panel)
@@ -629,7 +642,7 @@ class gui_frame(wx.Frame):
 				self.mc_error(value)
 			self.f = None
 		self.mcname = None
-		
+
 	def refresh(self):
 		try:
 			self.dirlist.update(self.mc)
@@ -639,7 +652,7 @@ class gui_frame(wx.Frame):
 			self.dirlist.update(None)
 
 		mc = self.mc
-		
+
 		self.toolbar.EnableTool(self.ID_CMD_IMPORT, mc != None)
 		self.toolbar.EnableTool(self.ID_CMD_EXPORT, False)
 
@@ -656,7 +669,7 @@ class gui_frame(wx.Frame):
 		self.statusbar.SetStatusText("", 1)
 		if self.icon_win != None:
 			self.icon_win.load_icon(None, None)
-		
+
 		f = None
 		try:
 			f = file(filename, "r+b")
@@ -687,7 +700,7 @@ class gui_frame(wx.Frame):
 	def evt_dirlist_item_focused(self, event):
 		if self.icon_win == None:
 			return
-		
+
 		mc = self.mc
 
 		i = event.GetData()
@@ -699,7 +712,7 @@ class gui_frame(wx.Frame):
 		try:
 			mc.chdir("/" + ent[8])
 			f = mc.open(a[15], "rb")
-			try: 
+			try:
 				icon = f.read()
 			finally:
 				f.close()
@@ -733,7 +746,7 @@ class gui_frame(wx.Frame):
 		mc = self.mc
 		if mc == None:
 			return
-		
+
 		selected = self.dirlist.selected
 		dirtable = self.dirlist.dirtable
 		sfiles = []
@@ -748,7 +761,7 @@ class gui_frame(wx.Frame):
 
 		if len(sfiles) == 0:
 			return
-		
+
 		dir = self.config.get_savefile_dir("")
 		if len(selected) == 1:
 			(dirname, sf, longname) = sfiles[0]
@@ -781,7 +794,7 @@ class gui_frame(wx.Frame):
 
 			self.message_box("Exported " + fn + " successfully.")
 			return
-		
+
 		dir = wx.DirSelector("Export Save Files", dir, parent = self)
 		if dir == "":
 			return
@@ -800,7 +813,7 @@ class gui_frame(wx.Frame):
 				self.config.set_savefile_dir(dir)
 			self.message_box("Exported %d file(s) successfully."
 					 % count)
-			
+
 
 	def _do_import(self, fn):
 		sf = ps2save.ps2_save_file()
@@ -812,6 +825,8 @@ class gui_frame(wx.Frame):
 				sf.load_max_drive(f)
 			elif ft == "psu":
 				sf.load_ems(f)
+			elif ft == "psv":
+				sf.load_psv(f)
 			elif ft == "cbs":
 				sf.load_codebreaker(f)
 			elif ft == "sps":
@@ -829,16 +844,16 @@ class gui_frame(wx.Frame):
 
 		if not self.mc.import_save_file(sf, True):
 			self.error_box(fn + ": Save file already present.")
-		
+
 	def evt_cmd_import(self, event):
 		if self.mc == None:
 			return
-		
+
 		dir = self.config.get_savefile_dir("")
 		fd = wx.FileDialog(self, "Import Save File", dir,
 				   wildcard = ("PS2 save files"
-					       " (.cbs;.psu;.max;.sps;.xps)"
-					       "|*.cbs;*.psu;*.max;*.sps;*.xps"
+					       " (.cbs;.psu;.max;.sps;.xps;.psv)"
+					       "|*.cbs;*.psu;*.max;*.sps;*.xps;*.PSV;*.psv"
 					       "|All files|*.*"),
 				   style = (wx.FD_OPEN | wx.FD_MULTIPLE
 					    | wx.FD_FILE_MUST_EXIST))
@@ -866,7 +881,7 @@ class gui_frame(wx.Frame):
 		mc = self.mc
 		if mc == None:
 			return
-		
+
 		selected = self.dirlist.selected
 		dirtable = self.dirlist.dirtable
 
@@ -898,21 +913,21 @@ class gui_frame(wx.Frame):
 	def evt_cmd_ascii(self, event):
 		self.config.set_ascii(not self.config.get_ascii())
 		self.refresh()
-		
+
 	def evt_cmd_exit(self, event):
 		self.Close(True)
 
 	def evt_close(self, event):
 		self._close_mc()
 		self.Destroy()
-		
+
 def run(filename = None):
 	"""Display a GUI for working with memory card images."""
 
 	wx_app = wx.PySimpleApp()
 	frame = gui_frame(None, "mymc", filename)
 	return wx_app.MainLoop()
-	
+
 if __name__ == "__main__":
 	import gc
 	gc.set_debug(gc.DEBUG_LEAK)
@@ -921,7 +936,7 @@ if __name__ == "__main__":
 
  	gc.collect()
  	for o in gc.garbage:
- 		print 
+ 		print
  		print o
  		if type(o) == ps2mc.ps2mc_file:
  			for m in dir(o):

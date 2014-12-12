@@ -3,11 +3,11 @@
 #
 # By Ross Ridge
 # Public Domain
-# 
+#
 # A simple interface for working with various PS2 save file formats.
 #
 
-_SCCS_ID = "@(#) mysc ps2save.py 1.6 08/08/11 14:11:54\n"
+_SCCS_ID = "@(#) mysc ps2save.py 1.7 12/10/04 19:17:16\n"
 
 import sys
 import os
@@ -26,6 +26,7 @@ try:
 except ImportError:
 	lzari = None
 
+PS2SAVE_PSV_MAGIC = "\x00VSP"
 PS2SAVE_MAX_MAGIC = "Ps2PowerSave"
 PS2SAVE_SPS_MAGIC = "\x0d\0\0\0SharkPortSave"
 PS2SAVE_CBS_MAGIC = "CFU\0"
@@ -167,12 +168,12 @@ char_substs = {
 def shift_jis_conv(src, encoding = None):
 	"""Convert Shift-JIS strings to a graphically similar representation.
 
-	If encoding is "unicode" then a Unicode string is returned,
-	otherwise a string in encoding specified is returned.  If necessary,
+	If encoding is "unicode" then a Unicode string is returned, otherwise
+	a string in the encoding specified is returned.  If necessary,
 	graphically similar characters are used to replace characters not
-	exactly representable in the desired encoding.
+	exactly	representable in the desired encoding.
 	"""
-	
+
 	if encoding == None:
 		encoding = sys.getdefaultencoding()
 	if encoding == "shift_jis":
@@ -188,14 +189,14 @@ def shift_jis_conv(src, encoding = None):
 		except UnicodeError:
 			for uc2 in shift_jis_normalize_table.get(uc, uc):
 				a.append(char_substs.get(uc2, uc2))
-	
+
 	return u"".join(a).encode(encoding, "replace")
 
 def rc4_crypt(s, t):
 	"""RC4 encrypt/decrypt the string t using the permutation s.
 
 	Returns a byte array."""
-	
+
 	s = array.array('B', s)
 	t = array.array('B', t)
 	j = 0
@@ -217,7 +218,7 @@ def rc4_crypt(s, t):
 
 def unpack_icon_sys(s):
 	"""Unpack an icon.sys file into a tuple."""
-	
+
 	# magic, title offset, ...
 	# [14] title, normal icon, copy icon, del icon
 	a = struct.unpack("<4s2xH4x"
@@ -237,7 +238,7 @@ def unpack_icon_sys(s):
 
 def icon_sys_title(icon_sys, encoding = None):
 	"""Extract the two lines of the title stored in an icon.sys tuple."""
-	
+
 	offset = icon_sys[1]
 	title = icon_sys[14]
 	title2 = shift_jis_conv(title[offset:], encoding)
@@ -246,7 +247,7 @@ def icon_sys_title(icon_sys, encoding = None):
 
 def _read_fixed(f, n):
 	"""Read a string of a fixed length from a file."""
-	
+
 	s = f.read(n)
 	if len(s) != n:
 		raise eof, f
@@ -254,13 +255,13 @@ def _read_fixed(f, n):
 
 def _read_long_string(f):
 	"""Read a string prefixed with a 32-bit length from a file."""
-	
+
 	length = struct.unpack("<L", _read_fixed(f, 4))[0]
-	return _read_fixed(f, length) 
+	return _read_fixed(f, length)
 
 class ps2_save_file(object):
 	"""The state of a PlayStation 2 save file."""
-	
+
 	def __init__(self):
 		self.file_ents = None
 		self.file_data = None
@@ -272,7 +273,7 @@ class ps2_save_file(object):
 		self._compressed = None
 		self.file_ents = [None] * ent[2]
 		self.file_data = [None] * ent[2]
-		self.dirent = ent
+		self.dirent = list(ent)
 
 	def set_file(self, i, ent, data):
 		self.file_ents[i] = ent
@@ -292,7 +293,7 @@ class ps2_save_file(object):
 
 	def __getitem__(self, index):
 		return self.get_file(index)
-	
+
 	def get_icon_sys(self):
 		for i in range(self.dirent[2]):
 			(ent, data) = self.get_file(i)
@@ -302,7 +303,7 @@ class ps2_save_file(object):
 
 	def load_ems(self, f):
 		"""Load EMS (.psu) save files."""
-		
+
 		cluster_size = 1024
 
 		dirent = unpack_dirent(_read_fixed(f, PS2MC_DIRENT_LENGTH))
@@ -339,11 +340,13 @@ class ps2_save_file(object):
 		f.write(pack_dirent((DF_RWX | DF_DIR | DF_0400 | DF_EXISTS,
 				     0, 0, dirent[3],
 				     0, 0, dirent[3], 0, "..")))
-				     
+
 		for i in range(dirent[2] - 2):
 			(ent, data) = self.get_file(i)
 			f.write(pack_dirent(ent))
 			if not mode_is_file(ent[0]):
+				# print ent
+				# print hex(ent[0])
 				raise error, "Directory has a subdirectory."
 			f.write(data)
 			f.write("\0" * (round_up(len(data), cluster_size)
@@ -353,14 +356,14 @@ class ps2_save_file(object):
 	def _load_max_drive_2(self):
 		(length, s) = self._compressed
 		self._compressed = None
-		
+
 		if lzari == None:
 			raise error, ("The lzari module is needed to "
 				      " decompress MAX Drive saves.")
 		s = lzari.decode(s, length,
 				 "decompressing " + self.dirent[8] + ": ")
 		dirlen = self.dirent[2]
-		now = tod_now()
+		timestamp = self.dirent[3]
 		off = 0
 		for i in range(dirlen):
 			if len(s) - off < 36:
@@ -373,13 +376,14 @@ class ps2_save_file(object):
 			if len(data) != l:
 				raise eof, f
 			self.set_file(i,
-				      (DF_RWX | DF_FILE | DF_0400, 0, l,
-				       now, 0, 0, now, 0, name),
+				      (DF_RWX | DF_FILE | DF_0400 | DF_EXISTS,
+				       0, l, timestamp, 0, 0, timestamp, 0,
+				       name),
 				      data)
 			off += l
 			off = round_up(off + 8, 16) - 8
-		
-	def load_max_drive(self, f):
+
+	def load_max_drive(self, f, timestamp = None):
 		s = f.read(0x5C)
 		magic = None
 		if len(s) == 0x5C:
@@ -394,12 +398,14 @@ class ps2_save_file(object):
 		else:
 			s = _read_fixed(f, clen - 4)
 		dirname = zero_terminate(dirname)
-		now = tod_now()
-		self.set_directory((DF_RWX | DF_DIR | DF_0400, 0,
-				    dirlen, now, 0, 0, now, 0, dirname),
+		if timestamp == None:
+			timestamp = tod_now()
+		self.set_directory((DF_RWX | DF_DIR | DF_0400 | DF_EXISTS,
+				    0, dirlen, timestamp, 0, 0, timestamp, 0,
+				    dirname),
 				   True)
 		self._compressed = (length, s)
-		
+
 	def save_max_drive(self, f):
 		if lzari == None:
 			raise error, ("The lzari module is needed to "
@@ -434,6 +440,43 @@ class ps2_save_file(object):
 				    len(compressed) + 4, dirent[2], length))
 		f.write(compressed)
 		f.flush()
+
+	def load_psv(self, f):
+		magic = f.read(4)
+		if magic != '\x00VSP':   #PS2SAVE_PSV_MAGIC:
+			raise corrupt, ("Not a PSV save file.", f)
+		(unknown1, signature, unknown2, unknown3, unknown4, saveType) = struct.unpack("i40s4i", _read_fixed(f,struct.calcsize("i40s4i")))
+		if saveType != 2:
+			raise corrupt, ("Not a PS2 PSV save file.",f)
+		#ps2-specific header
+		(unknown6, sysPos, sysSize, icon1Pos, icon1Size, icon2Pos, icon2Size, icon3Pos, icon3Size, numberOfFiles) = struct.unpack("10i", _read_fixed(f, struct.calcsize("10i")))
+		#dir header
+		(createReserved, createSeconds, createMinutes, createHours, createDays, createMonths, createYears, modReserved, modSeconds, modMinutes, modHours, modDays, modMonths, modYears,
+				filesize, attribute, filename) = struct.unpack("6BH6BH2i32s", _read_fixed(f,struct.calcsize("6BH6BH2i32s")))
+
+		if not mode_is_dir(attribute):
+			attribute = DF_RWX | DF_DIR | DF_0400
+		created = (createYears, createMonths, createDays, createHours, createMinutes, createSeconds)[::-1]
+		modified = (modYears, modMonths, modDays, modHours, modMinutes, modSeconds)[::-1]
+		self.set_directory((attribute, 0, numberOfFiles, created, 0, 0,
+				    modified, 0, zero_terminate(filename)))
+
+		files = []
+		files_seeks = []
+		for i in range(numberOfFiles):
+			(createReserved, createSeconds, createMinutes, createHours, createDays, createMonths, createYears, modReserved, modSeconds, modMinutes, modHours, modDays, modMonths, modYears,
+					filesize, attribute, filename, positionInFile) = struct.unpack("6BH6BH2i32si", _read_fixed(f, struct.calcsize("6BH6BH2i32si")))
+			created = (createYears, createMonths, createDays, createHours, createMinutes, createSeconds)[::-1]
+			modified = (modYears, modMonths, modDays, modHours, modMinutes, modSeconds)[::-1]
+			files.append((attribute, 0, filesize, created, 0, 0, modified, 0, zero_terminate(filename)))
+			files_seeks.append((positionInFile, filesize))
+
+		i = 0
+		for file_seek, file_attr in zip(files_seeks, files):
+			f.seek(file_seek[0])
+			data = _read_fixed(f,file_seek[1])
+			self.set_file(i, file_attr, data)
+			i+=1
 
 	def load_codebreaker(self, f):
 		magic = f.read(4)
@@ -480,7 +523,7 @@ class ps2_save_file(object):
 				raise eof, f
 			body = body[64 + size:]
 			files.append((header, data))
-			
+
 		self.set_directory((dirmode, 0, len(files), created, 0, 0,
 				    modified, 0, dirname))
 		for i in range(len(files)):
@@ -507,9 +550,9 @@ class ps2_save_file(object):
 		dirname = _read_long_string(f)
 		datestamp = _read_long_string(f)
 		comment = _read_long_string(f)
-		
+
 		(flen,) = struct.unpack("<L", _read_fixed(f, 4))
-		
+
 		(hlen, dirname, dirlen, dirmode, created, modified) \
 			= struct.unpack("<H64sL8xH2x8s8s", _read_fixed(f, 98))
 		_read_fixed(f, hlen - 98)
@@ -542,16 +585,18 @@ class ps2_save_file(object):
 			self.set_file(i, (mode, 0, flen, created, 0, 0,
 					  modified, 0, name),
 				      _read_fixed(f, flen))
-			
+
 		# ignore 4 byte checksum at the end
-		
+
 def detect_file_type(f):
 	"""Detect the type of PS2 save file.
 
 	The file-like object f should be positioned at the start of the file.
 	"""
-	
+
 	hdr = f.read(PS2MC_DIRENT_LENGTH * 3)
+	if hdr[:4]  == PS2SAVE_PSV_MAGIC:
+		return "psv"
 	if hdr[:12] == PS2SAVE_MAX_MAGIC:
 		return "max"
 	if hdr[:17] == PS2SAVE_SPS_MAGIC:
